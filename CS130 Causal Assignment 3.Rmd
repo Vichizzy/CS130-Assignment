@@ -1,0 +1,523 @@
+---
+title: "CS130 Causal Inference Assignment"
+output: 
+  pdf_document:
+    keep_tex: TRUE
+---
+
+
+```{r}
+library(knitr)  # Load knitr package
+knitr::opts_chunk$set(keep_tex = TRUE)
+```
+
+Matching
+
+(a) Identify the essential elements of the Rubin Causal Model in this context. Complete sentences not required. Cover at least 5 elements.
+
+- Potential outcomes: Each individual in the Darfur population has potential outcomes associated with their exposure to the violence orchestrated by the government, such as peace or vengeance (Imbens & Rubin, 2010). 
+- Treatment Assignment Mechanism: This refers to how individuals are exposed to the intervention of interest, such as either being physically injured or maimed during the attack. 
+- Stable Unit Treatment Value Assumption (SUTVA):  SUTVA assumes that there is no interference between units and that each unit's potential outcome is unaffected by the treatment assignment of other units. This means  that the violence perpetrated by the government against one group of civilians does not directly impact the potential outcomes of another group (Imbens & Rubin, 2010).
+- Unconfoundedness: This is the assumption that the potential outcome is independent of treatment conditional on covariates. 
+- Overlap: This would mean that there are individuals or groups who could potentially be both exposed to violence orchestrated by the government and not exposed. 
+
+Other essential elements include counterfactuals and Average Treatment Effect. 
+
+
+(b) Express the research question (from the ‘vignette’ linked above). Is it a causal question? Does it pass Rubin’s standard for causal questions? Explain.
+
+In this scenario, the research question can be restated as: Does being directly exposed to instances of violence increase the likelihood of individuals asking for revenge or the desire to make peace with the perpetrators? 
+This research question is a causal question because it seeks to understand the causal relationship between being directly affected by violence and the attitudes towards peace and vengeance. It strongly aligns with Rubin's standard for causal questions as it emphasizes the importance of comparing potential outcomes under different treatment conditions to estimate causal effects. In this case, the question explicitly compares two potential outcomes: The potential outcome of individuals feeling vengeful after being directly injured in the violence or the  potential outcome of individuals feeling motivated to seek peace and reconciliation after being directly injured  in the violence. 
+
+
+(c) Decide on the predictors you would want to control for. Justify your answer.
+The predictors would include:
+- Village: Controlling for the village is crucial as violence may differ across different villages based on their support for the opposition.
+- Female: Gender is an essential covariate as women were targeted and often subjected to sexual violence. 
+- Age: Age can be a significant factor as attitudes towards revenge or peace may vary across different age groups. For instance, younger individuals might have different attitudes compared to older individuals.
+- Past voting behavior: This may serve as a proxy for political affiliation, which could influence attitudes towards revenge or peace. 
+
+
+```{r}
+# Propensity Score Matching 
+#Load packages 
+library(sensemakr)
+library(Matching)
+
+data("darfur")
+``` 
+
+
+```{r}
+#performing propensity score matching without the Ys 
+#Defining the variables 
+Tr <- darfur$directlyharmed
+var1 <- darfur$age
+
+#Propensity score model 
+glm1  <- glm(Tr ~ village +  female + age + pastvoted , family=binomial, 
+             data = darfur) 
+
+pscore_without_y = Match(Tr=Tr, X=glm1$fitted, estimand="ATT", M=1, ties=TRUE, 
+                      replace=TRUE) 
+summary(pscore_without_y)
+
+MatchBalance(Tr ~ village +  female + age + pastvoted , match.out= pscore_without_y, nboots=1000, data=darfur) 
+
+# Plot propensity score matching to show balance for age 
+qqplot(var1[pscore_without_y$index.control], var1[pscore_without_y$index.treated],
+       main = "Balancing Property for Age",
+       xlab = "Age in Control Group", ylab = "Age in Treated Group",
+       col = "navyblue", pch = 16, cex = 1.2)
+abline(coef = c(0,1), col = "red", lwd = 2)
+legend("topleft", legend = "Ideal Balance", col = "red", lwd = 2, bty = "n")
+```
+(d) Perform propensity score matching without using the Ys. Be sure to estimate ATT (no other estimand). Be sure to evaluate balance on every variable that you consider to be an important predictor. What is the smallest (balance-metric) p-value obtained? Does the matching result meet your balance standard? Explain. 
+
+
+The lowest p.value obtained before matching is 0.014208 and the lowest p-value obtained after matching is < 2.22e-16. These p-values obtained are without including the Y estimate. The two p values have very high statistical significance, therefore it fails to meet our balance standard. Our balance standard is typically met when there is no statistical significance (i.e. p value > 0.05) in covariates between the treated and control groups after matching. We want our p-values to be as high as possible as they indicate a very high balance between the control and treated group. 
+
+
+```{r}
+#performing propensity score matching with the Ys
+Y <- cbind(darfur$peacefactor)
+pscore_with_y = Match(Y=Y, Tr=Tr, X=glm1$fitted, estimand="ATT", M=1, ties=TRUE, 
+                      replace=TRUE) 
+summary(pscore_with_y)
+MatchBalance(directlyharmed ~ village +  female + age + pastvoted, match.out= pscore_with_y, nboots=1000, data=darfur)
+# Plot propensity score matching to show balance for age 
+qqplot(var1[pscore_with_y$index.control], var1[pscore_with_y$index.treated],
+       main = "Balancing Property for Age",
+       xlab = "Age in Control Group", ylab = "Age in Treated Group",
+       col = "navyblue", pch = 16, cex = 1.2)
+abline(coef = c(0,1), col = "red", lwd = 2)
+legend("topleft", legend = "Ideal Balance", col = "red", lwd = 2, bty = "n")
+
+```
+
+
+(e) Even if the balance result does not meet your standard, proceed to estimate the treatment effect, standard error, and p-value. Explain and interpret your results in a few sentences. 
+
+The treatment effect of 0.19337 suggests that, on average, individuals exposed to violence are more likely to seek peace holding other factors constant. Our small standard error of 0.11755  indicates greater confidence in the estimated treatment effect. However, the p-value of 0.099962 shows that the estimated effect is not statistically significant at the traditional level. This suggests that there may be a relationship between direct exposure to violence and seeking peace or vengeance, but further investigation or larger sample sizes may be needed to confirm it with greater certainty.  
+
+
+(f) Run sensemakr analysis (using the package, following the example in the vignette) on the matched data and discuss your results. (You must obtain your matched data.)
+```{r} 
+#Running sensemakr 
+darfur.model <- lm(peacefactor ~ directlyharmed  + village +  female + age + pastvoted , 
+                   data = darfur)
+
+#Sensitivity analysis
+darfur.sensitivity <- sensemakr(model = darfur.model, 
+                                treatment = "directlyharmed",
+                                benchmark_covariates = "female",
+                                kd = 1:3 )
+summary(darfur.sensitivity)
+
+plot(darfur.sensitivity)
+
+```
+
+Based on the sensitivity analysis results from the Darfur dataset, the unadjusted estimate suggests a positive relationship between direct exposure to violence and seeking peace, which is shown by the positive coefficient estimate of 0.0979. Nevertheless, the partial R2 values show that extreme unobserved confounders would need to explain at least 2.23% of the residual variance of the treatment to fully account for the observed estimated effect, which suggests a moderate sensitivity to unobserved confounding. Lastly, the robustness values ( q = 1 and alpha = 0.05) provide thresholds for assessing the strength of unobserved confounders. In our case, if unobserved confounders explain more than 13.99% (or 7.76% at alpha = 0.05) of the residual variance of both the treatment and the outcome, they could significantly bias the estimated effect. This means that despite the positive relationship between direct exposure to violence and seeking peace, the sensitivity analysis highlights the need to include potential unobserved confounders. 
+
+
+(g) Repeat steps c-f (above) using genetic matching instead of propensity score matching.
+```{r}
+#Genetic Matching without the Y
+library(rgenoud)
+
+data("darfur")
+
+X <- cbind(darfur$village, darfur$female, darfur$age, darfur$pastvoted)
+
+Tr= darfur$directlyharmed
+
+gen1 <- GenMatch(Tr= darfur$directlyharmed, X=X, estimand="ATT", M=1)
+
+mout = Match(Tr= darfur$directlyharmed, X=X, estimand="ATT", M=1,Weight.matrix = gen1)
+summary (mout)
+
+Balance <- MatchBalance(Tr ~ X,
+                        data = darfur,
+                        match.out = mout)
+summary(Balance)
+```
+
+
+```{r}
+#Genetic matching with the Y 
+Y <- cbind(darfur$peacefactor)
+mout = Match(Y=Y, Tr= darfur$directlyharmed, X=X, Weight.matrix = gen1)
+summary (mout)
+
+
+```
+(d) The lowest p.value obtained before matching is 0.114 and the lowest p-value obtained after matching is 0.33398. The two p values are not statistically significant, therefore it performs well and meets our balance standard. Our balance standard is typically met when there is no statistical significance (i.e. p value > 0.05) in covariates between the treated and control groups after matching, and these p-values did a great job at that. The high p-values indicate that there is balance between the treated and control group, which is what we want to make causal inferences using observational data. This results are way better than the propensity score matching, whose p-values are statistically significant.   
+
+(e) The treatment effect on of 0.049978 suggests that, on average, individuals exposed to violence are more likely to seek peace holding other factors constant. Our standard error of 0.023459 suggests greater confidence in this estimated treatment effect as it indicates a reasonable level of precision. This is further supported by the p-value of 0.033135, slight below the standard of 0.05, which shows that the estimated effect is statistically significant at the traditional level. This implies that the relationship between direct exposure to violence and seeking peace or vengeance is unlikely to have occurred by chance alone.
+
+(f) Sensitivity analysis for gen matching
+
+```{r}
+#Running sensemakr 
+darfur.model <- lm(peacefactor ~ directlyharmed  + village +  female + age + pastvoted , 
+                   data = darfur)
+
+#Sensitivity analysis
+darfur.sensitivity <- sensemakr(model = darfur.model, 
+                                treatment = "directlyharmed",
+                                benchmark_covariates = "female",
+                                kd = 1:3 )
+summary(darfur.sensitivity)
+
+plot(darfur.sensitivity)
+```
+
+(h) Repeat step (g), but adding at least 2 additional predictors to your step (g) analysis. 
+
+I have identified three additional predictors of herders/farmers in Darfur, and household size. This is because occupation may influence exposure to violence and attitudes towards revenge or peace, as well as potential economic or social motivations for the farmers/herders to seek revenge or peace. The household size can also influence the dynamics of conflict and peace within communities, as larger households may have different social structures, resources, and political affiliations compared to smaller households.
+
+
+
+```{r}
+#Genetic matching with additional predictors
+data("darfur")
+
+
+#Additional predictors
+darfur$farmer_dar
+darfur$herder_dar
+darfur$hhsize_darfur
+
+# Creating covariate matrix including interaction terms
+X <- cbind(darfur$village, darfur$female, darfur$age, darfur$pastvoted, darfur$farmer_dar, darfur$herder_dar, darfur$hhsize_darfur)
+
+Tr <- darfur$directlyharmed
+
+Y <- darfur$peacefactor
+
+gen1 <- GenMatch(Tr = darfur$directlyharmed, X = X, estimand = "ATT", M = 1, caliper = c(0, 5000, 1/15, 0, 0, 0, 1/5.6))
+
+
+mout <- Match(Y = Y, Tr = darfur$directlyharmed, X = X, estimand = "ATT", M = 1, Weight.matrix = gen1, caliper = c(0, 5000, 1/15, 0, 0, 0, 1/5.6))
+
+summary(mout)
+
+Balance <- MatchBalance(Tr ~ X,
+                        data = darfur,
+                        match.out = mout)
+summary(Balance)
+
+```
+
+
+```{r}
+#Running sensemakr 
+darfur.model <- lm(peacefactor ~ directlyharmed  + village +  female + age + pastvoted + farmer_dar + herder_dar + hhsize_darfur, data = darfur)
+
+#Sensitivity analysis
+darfur.sensitivity <- sensemakr(model = darfur.model, 
+                                treatment = "directlyharmed",
+                                benchmark_covariates = "female",
+                                kd = 1:3 )
+summary(darfur.sensitivity)
+
+plot(darfur.sensitivity)
+
+```
+
+
+(i)Summarize all your findings from all analyses above in a paragraph, including everything you deem important to a reader (or a manager at work) – you may imagine someone asked you to estimate impact at work, for example.
+
+
+
+In summary, in analyzing whether the impact of direct exposure to violence resulted in individuals seeking to make peace with the perpetrators or asking for revenge within the context of the Darfur dataset, we employed both propensity score matching (PSM) and genetic matching methodologies to ascertain the treatment effect. Between these two models, genetic matching proved to be a better matching tool in comparison to propensity score matching. In the case of propensity score matching, our before and after match balance results provided a very high statistical significance, which is contrary to the effect we wanted to see for our balance standard, indicating very low balance between the treated and control groups. However, after using genetic matching, our p values significantly improved and were above 0.05, indicating there is no statistical significance and there is a balance between the treated and control groups. This could be because genetic matching reliably reduces both the bias and the mean square error of the estimated causal effect even when the property of equal percent bias reduction (EPBR) does not hold (Diamond et al., 2005).
+
+Also, after introducing new predictors to our genetic matching, the treatment effect estimate improved from 0.049978 to 0.20057, the standard error reduced from 0.023459 to 0.0089193, and the p-value goes from 0.033135 to 2.22e-16. The improvement in these values indicate that the new predictors enhanced the accuracy of capturing the true relationship between the treatment and the outcome reducing the uncertainty associated with the estimate of the treatment effect, and provides strong evidence to reject the null hypothesis.  
+
+Lastly, the sensitivity analysis underscored the robustness of our findings. Despite some sensitivity to unobserved confounders, the results remained largely consistent. The partial R² values indicated a moderate sensitivity to unobserved confounders, but the thresholds set by the robustness analysis demonstrated the reliability of our estimates, with unobserved confounders needing to explain over 13.99% of the residual variance to significantly bias the results.
+
+
+
+Question 2: Synthetic Control
+```{r}
+#
+# Cantabria = 7
+library(Synth)
+
+data(basque)
+
+# dataprep: prepare data for synth
+dataprep.out <-
+  dataprep(
+  foo = basque
+  ,predictors= c("school.illit",
+                 "school.prim",
+                 "school.med",
+                 "school.high",
+                 "school.post.high"
+                 ,"invest"
+                 ) #1964-69
+   ,predictors.op = c("mean")
+   ,dependent     = c("gdpcap")
+   ,unit.variable = c("regionno")
+   ,time.variable = c("year")
+   ,special.predictors = list(
+    list("gdpcap",1960:1969,c("mean")),                            
+    list("sec.agriculture",seq(1961,1969,2),c("mean")),
+    list("sec.energy",seq(1961,1969,2),c("mean")),
+    list("sec.industry",seq(1961,1969,2),c("mean")),
+    list("sec.construction",seq(1961,1969,2),c("mean")),
+    list("sec.services.venta",seq(1961,1969,2),c("mean")),
+    list("sec.services.nonventa",seq(1961,1969,2),c("mean")),
+    list("popdens",1969,c("mean"))) #special time ranges
+    ,treatment.identifier  = 7
+    ,controls.identifier   = c(2:6,8:16,18)
+    ,time.predictors.prior = c(1964:1969) #what we have over the balance table of covariates
+    ,time.optimize.ssr     = c(1960:1969) #pre-treatment time
+    ,unit.names.variable   = c("regionname")
+    ,time.plot            = c(1955:1997) 
+    )
+
+# 1. combine highest and second highest 
+# schooling category and eliminate highest category
+dataprep.out$X1["school.high",] <- 
+ dataprep.out$X1["school.high",] + 
+ dataprep.out$X1["school.post.high",]
+dataprep.out$X1                 <- 
+ as.matrix(dataprep.out$X1[
+  -which(rownames(dataprep.out$X1)=="school.post.high"),])
+dataprep.out$X0["school.high",] <- 
+ dataprep.out$X0["school.high",] + 
+ dataprep.out$X0["school.post.high",]
+dataprep.out$X0                 <- 
+dataprep.out$X0[
+ -which(rownames(dataprep.out$X0)=="school.post.high"),]
+
+# 2. make total and compute shares for the schooling catgeories
+lowest  <- which(rownames(dataprep.out$X0)=="school.illit")
+highest <- which(rownames(dataprep.out$X0)=="school.high")
+
+dataprep.out$X1[lowest:highest,] <- 
+ (100 * dataprep.out$X1[lowest:highest,]) /
+ sum(dataprep.out$X1[lowest:highest,])
+dataprep.out$X0[lowest:highest,] <-  
+ 100 * scale(dataprep.out$X0[lowest:highest,],
+             center=FALSE,
+             scale=colSums(dataprep.out$X0[lowest:highest,])
+                                                 )
+    
+# run synth
+synth.out <- synth(data.prep.obj = dataprep.out)
+
+# Get result tables
+synth.tables <- synth.tab(
+                          dataprep.res = dataprep.out,
+                          synth.res = synth.out
+                          ) 
+
+# results tables:
+print(synth.tables)
+
+# plot results:
+# path
+path.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out,
+          Ylab = c("real per-capita GDP (1986 USD, thousand)"),
+          Xlab = c("year"), 
+          Ylim = c(0,13), 
+          Legend = c("Cantabria","synthetic Cantabria"),
+          ) 
+# Add title to the plot
+title("Synthetic Control for Cantabria")
+
+# Add vertical line separating pre-treatment and post-treatment periods
+abline(v = 1969, col = "black", lty = 2)
+
+arrows(1967, 10, 1969, 10,
+       col    = "black",
+       length = .1)
+
+text(1965, 10,
+     "Terrorism",
+     cex = 0.8)
+
+
+## gaps
+gaps.plot(synth.res = synth.out,
+          dataprep.res = dataprep.out, 
+          Ylab = c("gap in real per-capita GDP (1986 USD, thousand)"),
+          Xlab = c("year"), 
+          Ylim = c(-1.5,1.5)
+          ) 
+# Add vertical line separating pre-treatment and post-treatment periods
+abline(v = 1969, col = "black", lty = 2)
+
+arrows(1967, 1.0, 1969, 1.0,
+       col    = "black",
+       length = .1)
+
+text(1965, 1.0, 
+     "Terrorism",
+     cex = 0.8)
+```
+
+Performing a leave one out test to check robustness
+
+```{r}
+# Cantabria = 7
+library(Synth)
+
+data(basque)
+
+#Leave Canarias  out
+
+# Remove unit 11 from the control identifiers
+control_ids <- c(2:5, 8:16, 18)
+
+# dataprep: prepare data for synth
+dataprep.out <-
+  dataprep(
+    foo = basque,
+    predictors = c("school.illit",
+                   "school.prim",
+                   "school.med",
+                   "school.high",
+                   "school.post.high",
+                   "invest"
+    ), # 1964-69
+    predictors.op = c("mean"),
+    dependent = c("gdpcap"),
+    unit.variable = c("regionno"),
+    time.variable = c("year"),
+    special.predictors = list(
+      list("gdpcap", 1960:1969, c("mean")),
+      list("sec.agriculture", seq(1961, 1969, 2), c("mean")),
+      list("sec.energy", seq(1961, 1969, 2), c("mean")),
+      list("sec.industry", seq(1961, 1969, 2), c("mean")),
+      list("sec.construction", seq(1961, 1969, 2), c("mean")),
+      list("sec.services.venta", seq(1961, 1969, 2), c("mean")),
+      list("sec.services.nonventa", seq(1961, 1969, 2), c("mean")),
+      list("popdens", 1969, c("mean"))
+    ), # special time ranges
+    treatment.identifier = 7,
+    controls.identifier = control_ids,
+    time.predictors.prior = 1964:1969, # what we have over the balance table of covariates
+    time.optimize.ssr = 1960:1969, # pre-treatment time
+    unit.names.variable = c("regionname"),
+    time.plot = 1955:1997
+  )
+
+# Combine highest and second highest schooling category and eliminate highest category
+dataprep.out$X1["school.high", ] <-
+  dataprep.out$X1["school.high", ] +
+  dataprep.out$X1["school.post.high", ]
+dataprep.out$X1 <-
+  as.matrix(dataprep.out$X1[
+    -which(rownames(dataprep.out$X1) == "school.post.high"), ])
+dataprep.out$X0["school.high", ] <-
+  dataprep.out$X0["school.high", ] +
+  dataprep.out$X0["school.post.high", ]
+dataprep.out$X0 <-
+  dataprep.out$X0[
+    -which(rownames(dataprep.out$X0) == "school.post.high"), ]
+
+# Make total and compute shares for the schooling categories
+lowest <- which(rownames(dataprep.out$X0) == "school.illit")
+highest <- which(rownames(dataprep.out$X0) == "school.high")
+
+dataprep.out$X1[lowest:highest, ] <-
+  (100 * dataprep.out$X1[lowest:highest, ]) /
+  sum(dataprep.out$X1[lowest:highest, ])
+dataprep.out$X0[lowest:highest, ] <-
+  100 * scale(dataprep.out$X0[lowest:highest, ],
+              center = FALSE,
+              scale = colSums(dataprep.out$X0[lowest:highest, ])
+  )
+
+# Leave-one-out synthetic control test
+synth.out <- synth(data.prep.obj = dataprep.out, leaveout = 6)
+
+# Get result tables
+synth.tables <- synth.tab(
+  dataprep.res = dataprep.out,
+  synth.res = synth.out
+)
+
+# Results tables:
+print(synth.tables)
+
+# Plot results:
+# Path
+path.plot(
+  synth.res = synth.out,
+  dataprep.res = dataprep.out,
+  Ylab = c("real per-capita GDP (1986 USD, thousand)"),
+  Xlab = c("year"),
+  Ylim = c(0, 13),
+  Legend = c("Cantabria", "synthetic Cantabria")
+)
+# Add title to the plot
+title("Leave One Out Synthetic Control for Cantabria")
+
+# Add vertical line separating pre-treatment and post-treatment periods
+abline(v = 1969, col = "black", lty = 2)
+
+arrows(
+  1967, 10, 1969, 10,
+  col = "black",
+  length = .1
+)
+
+text(
+  1965, 10,
+  "Terrorism",
+  cex = 0.8
+)
+
+## gaps
+gaps.plot(
+  synth.res = synth.out,
+  dataprep.res = dataprep.out,
+  Ylab = c("gap in real per-capita GDP (1986 USD, thousand)"),
+  Xlab = c("year"),
+  Ylim = c(-1.5, 1.5)
+)
+# Add vertical line separating pre-treatment and post-treatment periods
+abline(v = 1969, col = "black", lty = 2)
+
+arrows(
+  1967, 1.0, 1969, 1.0,
+  col = "black",
+  length = .1
+)
+
+text(
+  1965, 1.0,
+  "Terrorism",
+  cex = 0.8
+)
+
+```
+Interpretation of Synthetic control results
+
+The synthetic control analysis for Cantabria reveals insights into the impact of terrorism conflict in the Basque country on per-capita GDP in this region. Pre-1969, Cantabria's GDP trend closely mirrored its synthetic counterpart, suggesting comparable economic trajectories. To create this synthetic control, a combination of a donor pool of 15 units with similar economic characteristics to Cantabria was utilized to capture the most relevant controls, 5 of which have positive weights. However, post-1969, a slight gap emerges of approximately 1% of per capita GDP, indicating a minor negative effect on Cantabria's per-capita GDP following the onset of terrorism in the Basque country.  This implies that the events of terrorism in the Basque country had little economic ramifications in Cantabria, potentially due to factors like geographical barriers like Mountains in Cantabria or a unique economic structure from the Basque country. The synthetic control method was ideal for this analysis as it provided a counterfactual scenario in the absence of terrorism, allowing for a robust assessment of its impact. To check the sensitivity of our main results to the weights, we performed a leave one out robustness test, where we removed one of the positive weights, Canarias. The findings showed that the results of our previous analysis are very robust to changes in regions in our donor pool, as there were no observable difference between the previous and current analysis. However, further analysis is needed to fully grasp the implications of these findings and elucidate the broader economic dynamics influenced by terrorism in the Basque country.
+
+
+
+
+AI statement
+I utilized ChatGPT in the writeup of this assignment to help me edit some errors from my code and include other features like title and vertical line in my graphs. This allowed me to present my work neatly and professionally. 
+
+
+
+
+References 
+Abadie, A., & Gardeazabal, J. (2001). The Economic Costs of Conflict: A Case-Control Study for the Basque Country. Library Union Catalog of Bavaria, Berlin and Brandenburg (B3Kat Repository). https://doi.org/10.3386/w8478
+
+Cinelli, C. (2020). An introduction to sensitivity analysis using sensemakr. R-Project.org. https://cran.r-project.org/web/packages/sensemakr/vignettes/sensemakr.html
+
+Diamond, A., Sekhon, J., Candidate, Abadie, A., Mebane, W., Rubin, D., Brady, H., Dehejia, R., Hotz, J., Imai, K., Imbens, G., King, G., Quinn, K., Robins, J., Schrodt, P., Smith, J., & Todd, P. (2005). Empirical Eval-uation of Labour Market Programmes. In Congress Centre of Bundesagentur für Arbeit. https://escholarship.org/content/qt8gx4v5qt/qt8gx4v5qt_noSplash_e288f5a0cda4a8196a2a3d315a013d74.pdf?t=krndmx#:~:text=Genetic%20matching%20reliably%20reduces%20both
+
+Imbens, G. W., & Rubin, D. B. (2010). Rubin Causal Model. Palgrave Macmillan UK EBooks, 229–241. https://doi.org/10.1057/9780230280816_28
+
